@@ -1,0 +1,50 @@
+[2K[1G[36m?[39m [1mWhat is your project named?[22m [90m›[39m [90mmy-app[39m78[2K[1G[2K[1G[36m?[39m [1mWhat is your project named?[22m [90m›[39m m78[2K[1G[2K[1G[36m?[39m [1mWhat is your project named?[22m [90m›[39m my78[2K[1G[2K[1G[36m?[39m [1mWhat is your project named?[22m [90m›[39m my-78[2K[1G[2K[1G[36m?[39m [1mWhat is your project named?[22m [90m›[39m my-a78[2K[1G[2K[1G[36m?[39m [1mWhat is your project named?[22m [90m›[39m my-ap78[2K[1G[2K[1G[36m?[39m [1mWhat is your project named?[22m [90m›[39m my-app78[2K[1G[2K[1G[32m✔[39m [1mWhat is your project named?[22m [90m…[39m my-app78
+[?25h[?25l[36m?[39m [1mWould you like to use the recommended Next.js defaults?[22m [90m›[39m [90m- Use arrow-keys. Return to submit.[39m
+[36m❯[39m   [36m[4mYes, use recommended defaults[39m[24m[90m - TypeScript, ESLint, Tailwind CSS, App Router[39m
+    No, customize settings[90m[39m
+[2K[1G[36m?[39m [1mWould you like to use the recommended Next.js defaults?[22m [90m›[39m [90m- Use arrow-keys. Return to submit.[39m
+    Yes, use recommended defaults[90m[39m
+[36m❯[39m   [36m[4mNo, customize settings[39m[24m[90m - Choose your own preferences[39m
+[2K[1G[32m✔[39m [1mWould you like to use the recommended Next.js defaults?[22m [90m›[39m No, customize settings
+[?25h[?25l[2K[1G[36m?[39m [1mWould you like to use TypeScript?[22m [90m›[39m No [90m/[39m [36m[4mYes[39m[24m[2K[1G[2K[1G[32m✔[39m [1mWould you like to use TypeScript?[22m [90m…[39m No [90m/[39m [36m[4mYes[39m[24m
+[?25h[?25l[36m?[39m [1mWhich linter would you like to use?[22m [90m›[39m [90m- Use arrow-keys. Return to submit.[39m
+[36m❯[39m   [36m[4mESLint[39m[24m[90m - More comprehensive lint rules[39m
+    Biome[90m[39m
+    None[90m[39m
+[2K[1G[32m✔[39m [1mWhich linter would you like to use?[22m [90m›[39m ESLint
+[?25h[?25l[2K[1G[36m?[39m [1mWould you like to use React Compiler?[22m [90m›[39m [36m[4mNo[39m[24m [90m/[39m Yes[2K[1G[2K[1G[32m✔[39m [1mWould you like to use React Compiler?[22m [90m…[39m [36m[4mNo[39m[24m [90m/[39m Yes
+[?25h[?25l[2K[1G[36m?[39m [1mWould you like to use Tailwind CSS?[22m [90m›[39m No [90m/[39m [36m[4mYes[39m[24m[2K[1G[2K[1G[36m?[39m [1mWould you like to use Tailwind CSS?[22m [90m›[39m [36m[4mNo[39m[24m [90m/[39m Yes[2K[1G[2K[1G[32m✔[39m [1mWould you like to use Tailwind CSS?[22m [90m…[39m [36m[4mNo[39m[24m [90m/[39m Yes
+[?25h[?25l[2K[1G[36m?[39m [1mWould you like your code inside a `src/` directory?[22m [90m›[39m [36m[4mNo[39m[24m [90m/[39m Yes[2K[1G[2K[1G[36m?[39m [1mWould you like your code inside a `src/` directory?[22m [90m›[39m No [90m/[39m [36m[4mYes[39m[24m[2K[1G[2K[1G[32m✔[39m [1mWould you like your code inside a `src/` directory?[22m [90m…[39m No [90m/[39m [36m[4mYes[39m[24m
+[?25h[?25l[2K[1G[36m?[39m [1mWould you like to use App Router? (recommended)[22m [90m›[39m No [90m/[39m [36m[4mYes[39m[24m[2K[1G[2K[1G[32m✔[39m [1mWould you like to use App Router? (recommended)[22m [90m…[39m No [90m/[39m [36m[4mYes[39m[24m
+[?25h[?25l[2K[1G[36m?[39m [1mWould you like to customize the import alias (`@/*` by default)?[22m [90m›[39m [36m[4mNo[39m[24m [90m/[39m Yes[2K[1G[2K[1G[32m✔[39m [1mWould you like to customize the import alias (`@/*` by default)?[22m [90m…[39m [36m[4mNo[39m[24m [90m/[39m Yes
+[?25hCreating a new Next.js app in /Users/maton/Next.js_Practice/Next.js_Advance/training/my-app.
+
+Using npm.
+
+Initializing project with template: app 
+
+
+Installing dependencies:
+- next
+- react
+- react-dom
+
+Installing devDependencies:
+- @types/node
+- @types/react
+- @types/react-dom
+- eslint
+- eslint-config-next
+- typescript
+
+
+added 339 packages in 41s
+
+137 packages are looking for funding
+  run `npm fund` for details
+
+Generating route types...
+✓ Types generated successfully
+
+Success! Created my-app at /Users/maton/Next.js_Practice/Next.js_Advance/training/my-app
+
