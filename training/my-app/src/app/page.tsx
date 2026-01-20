@@ -13,8 +13,14 @@ import styles from "./page.module.css";
  * - Server Component では `fetch` をサーバ側で実行できるため、
  *   ブラウザから直接 API を叩くのではなく、サーバでデータを取りに行ってから HTML を生成できる。
  *
+ * 追加要件：cache: "no-store"
+ * - Next.js の fetch は（環境/設定にもよるが）キャッシュや再利用が効くことがある。
+ * - `cache: "no-store"` を指定すると「このリクエスト結果をキャッシュせず、毎回必ず取りに行く」
+ *   という動きになる。
+ * - “最新の一覧を常に表示したい” という用途では no-store が分かりやすい選択になる。
+ *
  * アルゴリズム的な見方（データ取得→整形→表示）：
- * 1. API へリクエスト
+ * 1. API へリクエスト（no-store により毎回実行）
  * 2. JSON を受け取る
  * 3. 必要なプロパティだけに整形（id, title）
  * 4. UI（リスト）に変換して描画する
@@ -26,6 +32,10 @@ async function getPhotos() {
    * - fetch("http://localhost:8080/api/photos") でバックエンドAPIからデータを取得している。
    * - `.then((res) => res.json())` でレスポンスボディを JSON としてパースしている。
    *
+   * cache: "no-store" の意味：
+   * - ブラウザの fetch における “キャッシュ制御” に近い概念だが、Next.js ではサーバ側 fetch にも影響する。
+   * - これにより、同じリクエストが繰り返されても「前回結果を再利用」せずに毎回取得する方向になる。
+   *
    * 型注釈：
    * - `data: { photos: Photo[] }` としているので、
    *   受け取る JSON は `{ photos: [...] }` の形である前提になっている。
@@ -35,7 +45,11 @@ async function getPhotos() {
    * - fetch は失敗（ネットワークエラー / 非200）し得るため、本来は例外処理や res.ok の確認も考慮対象。
    */
   const data: { photos: Photo[] } = await fetch(
-    "http://localhost:8080/api/photos"
+    "http://localhost:8080/api/photos",
+    {
+      // ★: キャッシュしない（常に最新データを取りに行く）
+      cache: "no-store",
+    }
   ).then((res) => res.json());
 
   /**
@@ -64,7 +78,7 @@ async function getPhotos() {
  * アルゴリズム的な見方（SSR/Server Component の流れ）：
  * 1. リクエストが来る
  * 2. Page 関数がサーバで実行される
- * 3. `await getPhotos()` でデータを取得する
+ * 3. `await getPhotos()` でデータを取得する（no-store のため毎回 API へ）
  * 4. 取得したデータを元に JSX を構築し、HTML を生成して返す
  *
  * これにより、クライアント側でデータ取得してから描画するよりも
