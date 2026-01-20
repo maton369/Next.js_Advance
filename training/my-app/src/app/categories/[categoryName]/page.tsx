@@ -1,131 +1,193 @@
-"use client";
+import Link from "next/link";
+import type { Category, Photo } from "@/type";
+import { getPage } from "@/utils";
+import styles from "./page.module.css";
 
-import { useRouter } from "next/navigation";
+/**
+ * getCategory（カテゴリ情報を取得する関数）
+ *
+ * - Dynamic Segment で渡ってくる `categoryName`（例：flower / animal）を使って、
+ *   カテゴリ詳細（id, label など）を API から取得する。
+ *
+ * App Router 的ポイント：
+ * - このページ（おそらく `app/categories/[categoryName]/page.tsx`）は `"use client"` が無いので Server Component。
+ * - よって、この fetch はブラウザではなくサーバ側で実行される前提であり、
+ *   「データを取ってから HTML を作る」という流れを自然に書ける。
+ *
+ * アルゴリズム的な見方：
+ * 1. 入力：categoryName（URL 由来のパラメータ）
+ * 2. API へ GET /api/categories/:categoryName
+ * 3. JSON をパース
+ * 4. category オブジェクトを返す
+ */
+async function getCategory(categoryName: string) {
+  /**
+   * - API は `{ category: Category }` の形で返ってくる前提。
+   * - 受け取った JSON から category のみを取り出して返す。
+   *
+   * 注意（運用面）：
+   * - localhost 固定は開発向けなので、本番では環境変数にするのが一般的。
+   * - res.ok のチェックや try/catch での例外処理が無いので、失敗時の画面設計（notFound 等）を
+   *   将来的に追加すると堅牢になる。
+   */
+  const data: { category: Category } = await fetch(
+    `http://localhost:8080/api/categories/${categoryName}`
+  ).then((res) => res.json());
 
+  return data.category;
+}
+
+/**
+ * getPhotos（写真一覧を取得する関数）
+ *
+ * - 全写真を API から取得する。
+ * - このサンプルでは、後段で `categoryId` によるフィルタを行い、カテゴリに紐づく写真だけを抽出している。
+ *
+ * アルゴリズム的な見方：
+ * 1. API へ GET /api/photos
+ * 2. JSON をパース
+ * 3. photos 配列を返す
+ *
+ * 🚧: 本番的には「カテゴリで絞り込んだ写真」や「ページネーションされた写真」だけを
+ *     API から取る方が効率が良い（不要な全件取得を避けられる）。
+ */
+async function getPhotos() {
+  const data: { photos: Photo[] } = await fetch(
+    "http://localhost:8080/api/photos"
+  ).then((res) => res.json());
+  return data.photos;
+}
+
+/**
+ * Props（App Router のページに渡される引数）
+ *
+ * - params: Dynamic Segment（/categories/[categoryName] の [categoryName] 部分）
+ * - searchParams: URL のクエリ（?page=2 など）
+ *
+ * 例：
+ * - /categories/flower?page=3
+ *   params.categoryName === "flower"
+ *   searchParams.page === "3"
+ */
 type Props = {
-  /**
-   * params（パスパラメータ）
-   *
-   * - App Router の Dynamic Route（例：`app/categories/[categoryName]/page.tsx`）では、
-   *   URL のパスの一部（`[categoryName]`）が params として渡される。
-   *
-   * 例：
-   * - /categories/flower にアクセスすると params.categoryName === "flower"
-   * - /categories/animal にアクセスすると params.categoryName === "animal"
-   *
-   * アルゴリズム的には：
-   * - 「URL のパス」→「キー付きの値（params）」へ変換して、ページコンポーネントに渡す。
-   * - これにより “ルートが持つ状態” を関数引数として受け取れるようになる。
-   */
   params: { categoryName: string };
-
-  /**
-   * searchParams（URL 検索パラメータ / クエリ文字列）
-   *
-   * - URL の `?key=value` 形式の部分を参照できる。
-   * - Next.js App Router では、ページコンポーネントに searchParams が props として渡される。
-   *
-   * 例：
-   * - /categories/flower?page=3 → searchParams.page === "3"
-   * - /categories/flower?page=1&page=2 のように同キーが複数あり得るため、string[] になる可能性がある
-   * - 指定されていなければ undefined
-   *
-   * 型が `{ [key: string]: string | string[] | undefined }` なのは、
-   * - クエリ文字列は任意のキーが飛んでくる可能性がある（動的）ため
-   * - さらに、キーの値が「単一」か「複数」か「未指定」かが状況で変わるため
-   */
   searchParams: { [key: string]: string | string[] | undefined };
 };
 
-// ★: props からパスパラメーター、URL 検索パラメーターが参照できる
 /**
- * /categories/[categoryName] ページ（カテゴリ別一覧画面）
+ * カテゴリ別一覧ページ（/categories/[categoryName]）
  *
- * 追加要件：useRouter を追加し、router.push する
- * - App Router で `useRouter()` はクライアントコンポーネント専用のフックである。
- * - そのため、このファイル先頭に `"use client";` を付けて「クライアント側で動く」ことを宣言する。
+ * - 目的：指定カテゴリの写真一覧を表示し、ページ番号（?page=）に応じてページネーションUIを出す。
  *
- * アルゴリズム的な見方：
- * - URL から params/searchParams を受け取り表示する（入力→表示）
- * - さらに、ユーザー操作（ボタンクリック）をトリガに router.push で URL を更新し、
- *   別のルートへ遷移させる（入力→状態遷移）
+ * アルゴリズム的な見方（入力→データ取得→整形→表示→遷移）：
+ * 1. URL から params.categoryName（カテゴリ指定）を受け取る
+ * 2. URL から searchParams（ページ番号など）を受け取る
+ * 3. 必要なデータ（カテゴリ情報、写真一覧）を取得する
+ * 4. 表示対象を抽出（categoryId でフィルタ）
+ * 5. 画面表示（タイトル・一覧・ページネーション）
+ * 6. Link で前後ページへ遷移（URL の page を更新）
  */
-export default function Page({ params, searchParams }: Props) {
-  /**
-   * useRouter（App Router 版）
-   *
-   * - `next/navigation` の useRouter は、クライアント側でルート遷移を行うための API を提供する。
-   * - router.push("/path") を呼ぶと、ブラウザのフルリロードなしで内部遷移が走り、
-   *   Next.js が必要な差分（page 部分）を更新する。
-   */
-  const router = useRouter();
+export default async function Page({ params, searchParams }: Props) {
+  // ★: Promise.all を使用した並列データ取得
 
   /**
-   * page（ページ番号）の取り出しと正規化
+   * Promise.all による並列取得
    *
-   * searchParams.page は型上 `string | string[] | undefined` になり得るため、
-   * そのままでは「表示用のページ番号」として扱いにくい。
+   * - getCategory と getPhotos は互いに依存しないため、逐次実行すると待ち時間が増える。
+   * - Promise.all で同時に走らせることで、全体の待ち時間は「遅い方」に近づき、
+   *   レイテンシが短縮される（サーバレンダリングでも効く最適化）。
    *
-   * ここでは以下のルールで正規化している：
-   * - string の場合：そのまま使う（例："3"）
-   * - string[] / undefined の場合：ここでは "1" をデフォルトにする
+   * アルゴリズム：
+   * - 2つの非同期処理を同時に開始
+   * - 両方完了した時点で [category, photos] に結果をまとめて受け取る
    */
-  const page = typeof searchParams.page === "string" ? searchParams.page : "1";
+  const [category, photos] = await Promise.all([
+    getCategory(params.categoryName),
+    getPhotos(),
+  ]);
+
+  // 🚧: 本来であれば、カテゴリーに紐づく写真のみを取得しページネーションを施す
 
   /**
-   * ページ番号を 1 つ進める（例：ページネーションの「次へ」）
+   * page（ページ番号）の取得
    *
-   * - router.push を使って URL のクエリ（?page=...）を更新する。
-   * - URL を状態として扱うため、
-   *   - リロードしても同じページ番号に戻れる
-   *   - URL を共有/ブックマークできる
-   * という利点がある。
+   * - `getPage(searchParams)` は、searchParams から page を取り出して
+   *   1以上の整数に正規化するようなユーティリティを想定。
    *
-   * 注意：
-   * - page は string なので、数値として扱う場合は Number(...) で変換してから演算する。
-   * - 不正値が入る可能性もあるので、最低限 1 以上に丸めるなどの防御もあり得る。
+   * ここで “URL を状態として扱う” ことの意味：
+   * - どのページを見ているかが URL に載るので、共有/再訪/リロードに強い。
    */
-  const goNextPage = () => {
-    const current = Number(page);
-    const next = Number.isFinite(current) && current >= 1 ? current + 1 : 2;
-
-    // 現在のカテゴリ（Dynamic Segment）を保持しつつ、クエリだけを更新して遷移する。
-    // 例：/categories/flower?page=1 → /categories/flower?page=2
-    router.push(`/categories/${params.categoryName}?page=${next}`);
-  };
-
-  /**
-   * カテゴリー一覧に戻る
-   *
-   * - Link を使わずに router.push で戻す例。
-   * - UI からの明示的な操作で遷移させたい場合に使う。
-   */
-  const goCategoriesIndex = () => {
-    router.push("/categories");
-  };
+  const page = getPage(searchParams);
 
   return (
     <div>
-      <h1>カテゴリー別一覧画面</h1>
-
-      <h2>カテゴリー「{params.categoryName}」</h2>
-
-      <p>ページ番号：「{page}」</p>
+      {/**
+       * 表示タイトル
+       *
+       * - category.label は「人間向けの表示名」を想定（例："花"）。
+       * - page は URL 由来の現在のページ番号。
+       */}
+      <h1>
+        カテゴリー「{category.label}」の「{page}」ページ目
+      </h1>
 
       {/**
-       * router.push を発火させるためのボタン例
+       * 写真一覧表示
        *
-       * - Link は「宣言的な遷移（ここに行く）」に向く。
-       * - router.push は「命令的な遷移（このタイミングでここに行け）」に向く。
-       *   例：入力バリデーション後に遷移、API 成功後に遷移、ページネーション等。
-       */}
-      <button type="button" onClick={goNextPage}>
-        次のページへ
-      </button>
+       * - 現状は全 photos を取ってから、categoryId でフィルタしている。
+       * - filter → map の流れは「データ集合の絞り込み → UI要素への射影（変換）」という典型パターン。
+       *
+       * アルゴリズム：
+       * 1. photos の中から photo.categoryId === category.id のものだけ残す
+       * 2. 残った要素を <li> に変換し、詳細リンクを付けて表示する
+       *
+       * 🚧: 本来は API 側で categoryId や page/limit を受けて、必要分だけ返すのが効率的。
+       */
+      <ul>
+        {photos
+          .filter((photo) => photo.categoryId === category.id)
+          .map((photo) => (
+            <li key={photo.id}>
+              {/**
+               * 写真詳細へのリンク
+               *
+               * - `/photos/${photo.id}` は `app/photos/[id]/page.tsx` のような Dynamic Route を想定。
+               * - Link を使うことで、可能であればクライアントサイド遷移になり、体感が良くなりやすい。
+               */}
+              <Link href={`/photos/${photo.id}`}>{photo.title}</Link>
+            </li>
+          ))}
+      </ul>
 
-      <button type="button" onClick={goCategoriesIndex}>
-        カテゴリー一覧に戻る
-      </button>
+      {/**
+       * ページネーションUI
+       *
+       * - page に応じて「前へ」を出し分ける（1ページ目なら前へを出さない）。
+       * - 「次へ」は常に出している（本来は総ページ数やデータ件数に応じて制御するのが理想）。
+       *
+       * アルゴリズム：
+       * - 前へ：page !== 1 のときのみ表示、URL の page を page-1 にして遷移
+       * - 次へ：URL の page を page+1 にして遷移
+       *
+       * ここでも “URL を状態として扱う” のがポイントで、
+       * - 遷移 = URL の更新
+       * - 表示状態 = URL から復元
+       という設計が一貫している。
+       */}
+      <ul className={styles.pagination}>
+        {page !== 1 && (
+          <li>
+            <Link href={`/categories/${params.categoryName}?page=${page - 1}`}>
+              前へ
+            </Link>
+          </li>
+        )}
+        <li>
+          <Link href={`/categories/${params.categoryName}?page=${page + 1}`}>
+            次へ
+          </Link>
+        </li>
+      </ul>
     </div>
   );
 }
