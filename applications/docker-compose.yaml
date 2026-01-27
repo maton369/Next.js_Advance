@@ -1,0 +1,148 @@
+version: "3"
+
+# Docker Compose の定義ファイル
+#
+# - ここでは、アプリで利用する “外部サービス（インフラ）” をまとめて立ち上げる構成になっている。
+# - 主に以下の3種類を起動する：
+#   1) PostgreSQL（ユーザー系DB）: ps-db-user
+#   2) PostgreSQL（データ系DB） : ps-db-data
+#   3) MinIO（S3互換のオブジェクトストレージ）: minio
+#
+# アルゴリズム的な見方（compose の動作）：
+# 1. `docker compose up` を実行すると、services 配下の各コンテナが作成/起動される
+# 2. ports で指定した “ホスト側ポート” が “コンテナ側ポート” に転送される（ポートフォワード）
+# 3. volumes で指定した永続領域がコンテナ内パスへマウントされる（データを消さないため）
+# 4. 各サービスがローカル開発環境のインフラとして利用可能になる
+services:
+  # ============================
+  # PostgreSQL（ユーザー系DB）
+  # ============================
+  ps-db-user:
+    # postgres の公式イメージの latest を使用
+    #
+    # 注意：
+    # - latest は更新で挙動が変わる可能性があるため、実運用/チーム開発では
+    #   `postgres:16` のようにバージョン固定することが多い。
+    image: postgres:latest
+
+    # 環境変数で初期ユーザー/パスワードを設定する
+    #
+    # - POSTGRES_USER: 初期のDBユーザー名
+    # - POSTGRES_PASSWORD: そのパスワード
+    #
+    # 注意：
+    # - password を平文で書いているので、本番では .env や Secret 管理に寄せるのが一般的。
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: password
+
+    # ports（ポートマッピング）
+    #
+    # 書式： "ホスト側:コンテナ側"
+    #
+    # - PostgreSQL はコンテナ内で 5432 で待ち受けるのが標準。
+    # - ここではホスト側も 5432 を使うので、ローカルからは
+    #   localhost:5432 で ps-db-user に接続できる。
+    ports:
+      - 5432:5432
+
+    # volumes（永続化）
+    #
+    # - コンテナを消してもDBデータが消えないよう、Docker の named volume を使う。
+    # - /var/lib/postgresql は「DBのデータディレクトリ」を格納する場所（実体は image 側の仕様に依存）。
+    #
+    # 注意：
+    # - postgres の公式イメージでは一般に /var/lib/postgresql/data を使うことが多い。
+    #   ただし、ここでは /var/lib/postgresql にマウントしており、意図通り永続化されるかは
+    #   使っているイメージの仕様に合わせて確認した方がよい。
+    volumes:
+      - user_volumes:/var/lib/postgresql
+
+  # ============================
+  # PostgreSQL（データ系DB）
+  # ============================
+  ps-db-data:
+    # こちらも postgres を起動するが、ユーザー系DBと分離して別コンテナにしている。
+    #
+    # 分離するメリット（設計意図の例）：
+    # - 役割ごとにDBを分けて責務を明確化（ユーザー情報と投稿/写真データを分ける等）
+    # - バックアップ/復旧/移行の単位を分離しやすい
+    # - 将来スケールさせる際に片方だけ強化できる
+    image: postgres:latest
+
+    # 初期ユーザー/パスワード（ps-db-user と同じ）
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: password
+
+    # ports（ポートマッピング）
+    #
+    # - コンテナ内は 5432 のまま
+    # - ホスト側は 5433 にずらしている（同じホストで 5432 を2つは使えないため）
+    #
+    # つまり、ローカルからは
+    # - localhost:5432 → ps-db-user
+    # - localhost:5433 → ps-db-data
+    # という棲み分けになる。
+    ports:
+      - 5433:5432
+
+    # 永続化用の named volume
+    volumes:
+      - data_volumes:/var/lib/postgresql
+
+  # ============================
+  # MinIO（S3互換ストレージ）
+  # ============================
+  minio:
+    # MinIO は S3 互換のオブジェクトストレージ。
+    #
+    # 典型用途：
+    # - 写真のアップロード先（画像ファイルをDBではなくストレージへ置く）
+    # - CDN/配信の前段として使う
+    #
+    # 開発環境で “S3相当のもの” をローカルで立ち上げられるのが便利。
+    image: minio/minio:latest
+
+    # root ユーザーとパスワード
+    #
+    # 注意：
+    # - これも本番では平文固定は避けるのが一般的。
+    environment:
+      MINIO_ROOT_USER: root
+      MINIO_ROOT_PASSWORD: password
+
+    # volumes（データ永続化）
+    #
+    # - ホスト側の .minio ディレクトリをコンテナ側 /data にマウントしている。
+    # - これにより、MinIO のオブジェクトデータがローカルファイルとして残り、
+    #   コンテナを作り直してもデータを維持しやすい。
+    volumes:
+      - .minio:/data
+
+    # command（起動コマンド）
+    #
+    # - MinIO サーバを /data をデータ領域として起動する。
+    # - `--console-address ":9001"` で管理コンソールを 9001 番で公開する。
+    #
+    # アルゴリズム的には：
+    # - ストレージ（/data）を初期化/読み込み
+    # - 9000番で S3互換API を待ち受け
+    # - 9001番で Webコンソールを待ち受け
+    command: server --console-address ":9001" /data
+
+    # ports（ポートマッピング）
+    #
+    # - 9000: S3互換 API（アプリがファイルをPUT/GETする入口）
+    # - 9001: 管理コンソール（ブラウザでバケット作成などを操作）
+    ports:
+      - 9000:9000
+      - 9001:9001
+
+# volumes（named volumes の定義）
+#
+# - services から参照される named volume をここで宣言する。
+# - named volume は Docker が管理する永続領域で、コンテナ削除では消えない。
+volumes:
+  user_volumes:
+  data_volumes:
