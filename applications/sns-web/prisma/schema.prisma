@@ -1,0 +1,298 @@
+/**
+ * Prisma Schema（schema.prisma）
+ *
+ * - Prisma が DB 構造（テーブル/カラム/制約/リレーション）を定義するためのDSL。
+ * - ここに書いた内容を元に、
+ *   1) マイグレーション（DBにテーブルを作る/更新する）
+ *   2) Prisma Client（TypeScript から安全にDB操作できるコード生成）
+ * を行う。
+ *
+ * アルゴリズム的な見方（設計→生成→運用）：
+ * 1. schema.prisma に “データのルール” を宣言する（一次情報）
+ * 2. prisma migrate で DB の実体（テーブル/制約）を作る
+ * 3. prisma generate で Prisma Client を生成し、アプリから型安全に CRUD する
+ *
+ * このファイルは「アプリのデータモデルの仕様書」そのもの。
+ */
+
+/* =========================
+ * Datasource（接続先DB）
+ * ========================= */
+datasource db {
+  /**
+   * provider = "postgresql"
+   *
+   * - 使用する RDBMS の種類を指定する。
+   * - ここでは PostgreSQL を使うため "postgresql"。
+   */
+  provider = "postgresql"
+
+  /**
+   * url = env("DATABASE_URL")
+   *
+   * - DB 接続文字列（ホスト/ポート/DB名/ユーザー/パスワードなど）を環境変数から読む。
+   * - schema に秘密情報を直書きしないのが基本。
+   *
+   * 例（イメージ）：
+   * - DATABASE_URL="postgresql://user:pass@localhost:5432/mydb?schema=public"
+   */
+  url      = env("DATABASE_URL")
+}
+
+/* =========================
+ * Generator（クライアント生成）
+ * ========================= */
+generator client {
+  /**
+   * provider = "prisma-client-js"
+   *
+   * - Prisma Client（JS/TS で使うORMクライアント）を生成する設定。
+   * - `prisma generate` 実行時に、schema に基づいて型付き API が生成される。
+   */
+  provider = "prisma-client-js"
+}
+
+/* =========================
+ * Models（テーブル定義）
+ * =========================
+ *
+ * ここから下は、各 model が DB のテーブルに相当する。
+ * アルゴリズム的に言うと：
+ * - model = エンティティ（状態を持つデータの単位）
+ * - relation = エンティティ間の参照規約（外部キー）
+ * - @unique / @@unique = 一意性制約（重複禁止）
+ * - onDelete: Cascade = 親が消えたら子も消える（参照整合性）
+ */
+
+/* -------------------------
+ * Account（外部ログイン連携）
+ * ------------------------- */
+model Account {
+  /**
+   * id（主キー）
+   *
+   * - String 型の主キー。
+   * - @id で主キー指定。
+   * - @default(cuid()) で “衝突しにくいID” を自動生成する。
+   */
+  id                 String  @id @default(cuid())
+
+  /**
+   * userId（ユーザーへの外部キー）
+   *
+   * - この Account が紐づく User の id を保持する。
+   * - @unique なので「1ユーザー = 1アカウント」という制約になる。
+   *
+   * 注意：
+   * - 一般的な OAuth 連携では “1ユーザーが複数プロバイダを連携” できることが多い。
+   *   その場合 userId を unique にすると多重連携ができない設計になる。
+   * - この schema は “ユーザーは 1 つの外部アカウントだけ” という前提に寄った構造。
+   *   （意図した仕様なら OK）
+   */
+  userId             String  @unique
+
+  /**
+   * type / provider / providerAccountId
+   *
+   * - NextAuth などでよくあるフィールド構成。
+   * - provider: "github", "google" のような提供者識別子
+   * - providerAccountId: provider 側でのユーザーID（サブ）
+   */
+  type               String
+  provider           String
+  providerAccountId  String
+
+  /**
+   * トークン類
+   *
+   * - refresh_token / access_token / id_token は長い文字列になり得るため @db.Text を指定。
+   * - ? は nullable（値がなくてもよい）を意味する。
+   */
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  /**
+   * user（リレーション）
+   *
+   * - Account → User の参照。
+   * - fields: [userId] が外部キー、references: [id] が参照先主キー。
+   * - onDelete: Cascade により、User を削除すると Account も削除される。
+   *
+   * アルゴリズム的には：
+   * - 「親（User）を消したら子（Account）を自動で掃除する」参照整合性ルール。
+   */
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /**
+   * 複合一意制約
+   *
+   * - provider と providerAccountId の組み合わせは重複禁止。
+   * - つまり「同じ provider で同じ providerAccountId は 1 レコードだけ」になる。
+   *
+   * 例：
+   * - ("github", "12345") は 1 回しか登録できない。
+   */
+  @@unique([provider, providerAccountId])
+}
+
+/* -------------------------
+ * Session（ログインセッション）
+ * ------------------------- */
+model Session {
+  /**
+   * id（主キー）
+   */
+  id           String   @id @default(cuid())
+
+  /**
+   * sessionToken
+   *
+   * - セッション識別子（cookie 等に保存される値に相当）。
+   * - @unique で重複禁止。
+   */
+  sessionToken String   @unique
+
+  /**
+   * userId / user（User への外部キーとリレーション）
+   *
+   * - セッションは必ず 1 人の User に紐づく。
+   * - User 削除時は Session も cascade で削除される。
+   */
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /**
+   * expires（セッション有効期限）
+   *
+   * - DateTime は DB 側では TIMESTAMP などに相当。
+   * - 期限切れセッションを無効化するために必要。
+   */
+  expires      DateTime
+}
+
+/* -------------------------
+ * User（ユーザー本体）
+ * ------------------------- */
+model User {
+  /**
+   * id（主キー）
+   *
+   * - cuid による String 主キー。
+   */
+  id            String    @id @default(cuid())
+
+  /**
+   * name / email / image など
+   *
+   * - name は任意（?）。
+   * - email は任意だが、入る場合は @unique（同じメールは1ユーザーのみ）。
+   * - emailVerified は “認証済み時刻” を持つ設計。
+   */
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  /**
+   * profileId / profile
+   *
+   * - profileId は optional（?）だが、Profile 側には userId が必須で unique。
+   * - この組み合わせは「User と Profile が 1:1」であることを表現している。
+   *
+   * 注意：
+   * - ここで `profileId` を持つ設計は “User が Profile を参照する” 形。
+   * - 一方で Profile 側も userId を持っているため、参照が二重化している。
+   * - 1:1 を表したいなら、どちらか片側だけが外部キーを持つ設計に寄せることも多い。
+   *   （ただし意図があって両方持たせる場合もある）
+   */
+  profileId     String?
+  profile       Profile?
+
+  /**
+   * accounts / sessions（1対多）
+   *
+   * - User から見て Account や Session は複数持てる（配列）。
+   * - 実際の外部キーは Account.userId / Session.userId が保持する。
+   */
+  accounts      Account[]
+  sessions      Session[]
+}
+
+/* -------------------------
+ * VerificationToken（検証用トークン）
+ * ------------------------- */
+model VerificationToken {
+  /**
+   * identifier
+   *
+   * - メールアドレスなど “誰に対する検証か” を示す識別子として使われることが多い。
+   */
+  identifier   String
+
+  /**
+   * token
+   *
+   * - 検証用トークン本体。
+   * - @unique で重複禁止（同じトークンを2回登録できない）。
+   */
+  token        String   @unique
+
+  /**
+   * expires（有効期限）
+   *
+   * - 期限切れのトークンは無効。
+   */
+  expires      DateTime
+
+  /**
+   * 複合一意制約
+   *
+   * - identifier と token の組み合わせを一意にする。
+   * - token 単体も unique なので実質冗長に見えるが、
+   *   “identifier ごとに token を管理する” 意味を明示したい場合に入れることがある。
+   */
+  @@unique([identifier, token])
+}
+
+/* -------------------------
+ * Profile（ユーザープロフィール）
+ * ------------------------- */
+model Profile {
+  /**
+   * id（主キー）
+   */
+  id         String  @id @default(cuid())
+
+  /**
+   * bio（自己紹介）
+   */
+  bio        String?
+
+  /**
+   * screenName（表示用ID）
+   *
+   * - @unique により重複禁止（同じ screenName を2人が持てない）。
+   * - @default(cuid()) なので、未指定でも自動でユニークな値が入る。
+   *
+   * 仕様として：
+   * - “ユーザーが自分で決めるハンドルネーム” なら default を cuid にするのはやや不自然で、
+   *   初期値としてランダムIDを割り当てる設計に近い。
+   * - ここはプロダクト要件に応じて default の有無を検討するポイント。
+   */
+  screenName String? @unique @default(cuid())
+
+  /**
+   * userId / user（User への外部キーとリレーション）
+   *
+   * - userId は必須で @unique。
+   * - これにより「Profile は必ず 1 User に属し、User ごとに Profile は 1つだけ」になる。
+   * - onDelete: Cascade により、User 削除時に Profile も削除される。
+   */
+  userId     String  @unique
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
