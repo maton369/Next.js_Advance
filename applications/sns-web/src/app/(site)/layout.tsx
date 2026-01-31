@@ -8,19 +8,19 @@ import { PhotoIdsContextProvider } from "../_components/PhotoViewNavigator/provi
  * Props（SiteLayout が受け取る入力）
  *
  * children:
- * - このレイアウト配下の通常ページ本体（各 route の page.tsx の内容）が入る。
+ * - 通常のページコンテンツ（各 route の page.tsx が描画する内容）。
+ * - レイアウトの “メイン領域” に差し込まれる。
  *
  * modal:
- * - Next.js App Router の Parallel Routes / Intercepting Routes を使うと、
- *   “同じレイアウトの中に別のスロット” を追加できる。
- * - そのスロットに入るのが modal であり、モーダルUI（写真拡大表示など）を差し込む用途。
- *
- * 重要：
- * - modal は「ページ本体とは独立した描画領域」であり、
- *   “通常のページ遷移” と “モーダル表示の遷移” を同居させる設計にするための引数である。
+ * - Parallel Routes（並列ルート）で追加される “スロット” の内容。
+ * - Intercepting Routes と組み合わせることで、
+ *   背景（children）を保ったまま “モーダルだけを差し込む” 描画が可能になる。
  *
  * アルゴリズム的には：
- * - “1つのURL遷移” を「メイン領域（children）」と「モーダル領域（modal）」に分解して描画するための入力。
+ * - “URL によって変わる UI” を
+ *   - メイン（children）
+ *   - 追加レイヤ（modal）
+ *   に分解して合成するための入力。
  */
 type Props = {
   children: React.ReactNode;
@@ -28,116 +28,95 @@ type Props = {
 };
 
 /**
- * SiteLayout（サイト共通レイアウト + モーダルスロット付き）
+ * SiteLayout（サイト共通レイアウト + モーダルスロット合成）
  *
  * 役割：
- * - サイト全体の枠組み（Header / Navigation / Main / Footer）を共通化する
- * - Provider（PhotoIdsContextProvider）で、写真拡大表示に必要な “共有状態” をレイアウト配下に供給する
- * - Parallel Routes / Intercepting Routes を使って modal スロットを Layout.Main 内に差し込む
+ * - サイト全体の共通フレーム（Header / Navigation / Main / Footer）を統一する
+ * - PhotoIdsContextProvider により、写真拡大表示（モーダル）で必要な共有状態を配下へ供給する
+ * - Layout.Main で children と modal を “同じ領域に合成” して描画する
  *
- * なぜ async なのか：
- * - 現状のコードでは await はしていないが、
- *   LayoutHeader や LayoutNavigation が Server 側でデータ取得する設計に変わる可能性があるため、
- *   レイアウトを async にしておくと拡張しやすい。
- * - ただし “本当に不要なら async を外す” という整理も可能。
+ * async である理由（設計上の余地）：
+ * - 現状は await していないが、将来的にレイアウトでデータ取得（カテゴリ一覧やセッション等）を行う場合、
+ *   async にしておくとそのまま拡張できる。
+ * - ただし不要なら async を外すと意図が明確になる（どちらでも成立）。
  *
- * アルゴリズム的な見方（レイアウト合成 + スロット差し込み）：
- * 1. Provider を最外側に置き、配下のコンポーネントが context を参照できるようにする
- * 2. ClientRootLayout でクライアント側の共通処理（イベント、状態管理、UI制御）をまとめる
- * 3. Layout（共有UI）の Root 構造に沿って Header/Navigation/Main/Footer を配置
- * 4. Main の中で children（通常ページ）と modal（モーダルスロット）を合成して描画する
+ * アルゴリズム的な見方（共通レイアウト + スロット差し込み）：
+ * 1. Provider を最上位に置き、配下で “写真ID列や現在位置” などの共有情報を参照できるようにする
+ * 2. ClientRootLayout 配下にサイト UI を組み立てる（クライアント専用の処理をここに集約できる）
+ * 3. Layout.Container で Navigation と Main の配置を確定
+ * 4. Layout.Main 内で children（背景ページ）→ modal（前面レイヤ）を順に描画し、モーダルを重ねる
  */
 export default async function SiteLayout({ children, modal }: Props) {
   return (
     /**
-     * PhotoIdsContextProvider（写真拡大表示のための Provider）
+     * PhotoIdsContextProvider（写真拡大表示用の共有状態を配る Provider）
      *
      * ★ コメントの意図：
-     * - 写真拡大表示（モーダル）を開いたときに、
-     *   キーボード操作（例：左右キーで次/前の写真へ）を実現するには
-     *   “現在表示している写真ID” と “次に進むべき写真ID列” のような共有状態が必要になりやすい。
-     *
-     * - その共有状態を Context としてレイアウト配下に供給するのが PhotoIdsContextProvider。
+     * - 写真拡大表示モーダルで “キーボード操作（次/前）” を実現するには、
+     *   表示対象になり得る写真IDの一覧や、現在位置などの “横断的な状態” が必要。
+     * - それを Context としてレイアウト配下に流すことで、
+     *   背景ページ側とモーダル側が同じ情報を共有できる。
      *
      * アルゴリズム的には：
-     * - “横断的な状態（ナビゲーション用のID列）” を UI ツリー全体に配布する仕組み。
+     * - “グローバルに近い共有データ” をツリー全体に供給し、各コンポーネントが参照して動けるようにする。
      */
     <PhotoIdsContextProvider>
       {/* ★ ↑: 写真拡大表示画面キーボード操作のための Provider */}
 
       {/**
-       * ClientRootLayout（クライアント側の共通レイアウト層）
+       * ClientRootLayout（クライアント側の共通ルート）
        *
-       * - レイアウト自体は Server Component で書けるが、
-       *   配下でクライアント専用の機能（Hook、イベント、状態）を使いたい場合がある。
-       * - そこで “外枠だけ” を ClientRootLayout にして、
-       *   その内側でクライアント処理をまとめる構成がよく使われる。
+       * - LayoutHeader や LayoutNavigation にはクライアント処理（Hook/イベント）が含まれる可能性がある。
+       * - その場合、上位を Client Component にしておくことで、配下を自然にクライアントとして扱える。
        *
        * アルゴリズム的には：
-       * - “サーバレンダリングの枠” と “クライアントの振る舞い” を分離しつつ合成する層。
+       * - “サーバで組むレイアウト” に “クライアントの振る舞い” を安全に混ぜるための層。
        */}
       <ClientRootLayout>
         {/**
          * LayoutHeader（ヘッダー領域）
          *
-         * - サイト共通のヘッダー。
-         * - 認証情報や検索、ロゴなどを表示する想定。
+         * - ロゴ、検索、ログイン状態の表示などを持つ想定の共通ヘッダー。
          */}
         <LayoutHeader />
 
         {/**
-         * Layout.Container（レイアウトのメイン枠）
+         * Layout.Container（メインの配置枠）
          *
-         * - sns-shared-ui の Layout コンポーネント群で、ページ全体のレイアウトを統一する。
-         * - Navigation と Main を横並びにするなどの責務を持つ想定。
+         * - ナビゲーション（左）とメイン（右）をレイアウトするための枠。
+         * - CSS 的なグリッド/フレックスの責務は shared-ui 側に寄せられている想定。
          */}
         <Layout.Container>
           {/**
-           * LayoutNavigation（左ナビゲーション）
+           * LayoutNavigation（ナビゲーション領域）
            *
-           * - サイト内の主要リンクや投稿ボタンなどを持つ。
-           * - ここも Client Component で、usePathname や signIn を使う実装が含まれていた。
+           * - usePathname や signIn、投稿モーダルなどの導線を持つ想定。
+           * - つまり “現在地” と “認証状態” に応じて振る舞いが変わることが多い領域。
            */}
           <LayoutNavigation />
 
           {/**
-           * Layout.Main（メイン表示領域）
+           * Layout.Main（メイン領域：children と modal を合成する場所）
            *
-           * - children（通常ページ本体）を表示する
-           * - modal（モーダルスロット）も同じ Main 内に合成して表示する
+           * children:
+           * - 通常ページ本体（背景）。
            *
-           * ここが “Parallel Routes / Intercepting Routes” の肝：
-           * - 通常のページ遷移は children が変わる
-           * - モーダルを開く遷移は modal スロットが埋まる（または差し替わる）
+           * modal:
+           * - Parallel Routes のスロット。
+           * - Intercepting Routes により “本来のページ遷移先” をモーダルとして差し込むことで、
+           *   背景ページを維持したまま、前面にモーダルを重ねる UI が実現できる。
+           *
+           * 描画順が重要：
+           * - {children} を先に置くことで背景として出る
+           * - {modal} を後に置くことで前面レイヤとして重なりやすい（CSS の実装次第）
            *
            * アルゴリズム的には：
-           * - “URL から導かれる UI の部分集合” を
-           *   - メイン（children）
-           *   - オーバーレイ/モーダル（modal）
-           *   に分割して同時に描画している。
+           * - “URLが表す画面” を「背景（children）」＋「前景（modal）」として分解し、
+           *   1つの DOM ツリー内で合成している。
            */}
           <Layout.Main>
-            {/**
-             * children（通常ページのレンダリング）
-             *
-             * - 例：トップ、カテゴリ一覧、プロフィールなど。
-             */}
             {children}
 
-            {/**
-             * modal（モーダルスロットのレンダリング）
-             *
-             * ★ コメントの意図：
-             * - Parallel Routes / Intercepting Routes により、
-             *   “同じページ構造のまま、モーダルだけが追加で表示される” 遷移を実現できる。
-             *
-             * 例のイメージ：
-             * - /photos/123 を “モーダル表示” として割り込ませて、
-             *   背景は / のまま、上に写真詳細モーダルを表示する、など。
-             *
-             * アルゴリズム的には：
-             * - “背景ページを保ったまま、追加レイヤ（modal）を差し込む” 合成描画。
-             */}
             {/* ★ ↓: Parallel & Intercepting Routes によるモーダル表示 */}
             {modal}
           </Layout.Main>
